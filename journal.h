@@ -7,10 +7,16 @@
 
 using namespace std;
 
+#ifndef JOURNAL_LOST
 #define JOURNAL_LOST "LOST"
+#endif
+
+#ifndef JOURNAL_VALUE_MAX_LEN
+#define JOURNAL_VALUE_MAX_LEN 2048
+#endif
+
 #define JOURNAL_DELIM "\t"
 #define JOURNAL_NEWLINE "\n"
-#define JOURNAL_VALUE_MAX_LEN 512
 
 class journal {
 
@@ -39,20 +45,20 @@ public:
 
 public:
 	int time_slice;
+	int page_slice;
+	table_t table;
 	page_t page;
 	void (*onprint)(output_t);
 	void (*onpage)(page_t);
 
 private:
 	time_t time_index;
-	table_t table;
-	string state_path;
 
 	void flushentry(time_t time, string asset, string user);
 	void print(struct output);
 	bool exists(string asset, string user);
 	time_t timeindex(time_t time);
-	time_t dayindex(time_t time);
+	time_t pageindex(time_t time);
 	void flushall(time_t time);
 	void updatetime(time_t time);
 	int count(string asset);
@@ -65,7 +71,7 @@ public:
 	void credit(time_t time, string asset, string user, int value, attr_t attr);
 	void debit(time_t time, string asset, string user, int value);
 	void balance(time_t time, string asset, int expected_value);
-	void save(string path);
+	bool save(string path);
 	bool load(string path);
 
 };

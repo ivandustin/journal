@@ -90,6 +90,7 @@ using namespace journalhelpers;
 
 journal::journal() {
 	time_slice = 1800;
+	page_slice = 86400;
 	time_index = -1;
 	onprint	   = NULL;
 	onpage	   = NULL;
@@ -183,8 +184,8 @@ time_t journal::timeindex(time_t time) {
 	return time - (time % time_slice);
 }
 
-time_t journal::dayindex(time_t time) {
-	return time - (time % 86400);
+time_t journal::pageindex(time_t time) {
+	return time - (time % page_slice);
 }
 
 void journal::flushall(time_t time) {
@@ -215,7 +216,7 @@ void journal::print(output_t output) {
 	
 	if (page.size() > 0) {
 		last = page.back();
-		if (dayindex(last.start) != dayindex(output.start)) {
+		if (pageindex(last.start) != pageindex(output.start)) {
 			if (onpage != NULL) {
 				onpage(page);
 				page.clear();
@@ -238,13 +239,15 @@ void journal::print(output_t output) {
 #endif
 }
 
-void journal::save(string path) {
+bool journal::save(string path) {
 	ofstream file;
 
 	file.open(path.c_str(), ios::out);
+	JOURNAL_MUST(file.is_open());
 	file << "journal state table" << JOURNAL_NEWLINE;
 	file << "time saved" << JOURNAL_DELIM << time(NULL) << JOURNAL_NEWLINE;
 	file << "time slice" << JOURNAL_DELIM << time_slice << JOURNAL_NEWLINE;
+	file << "page slice" << JOURNAL_DELIM << page_slice << JOURNAL_NEWLINE;
 	file << "time index" << JOURNAL_DELIM << time_index << JOURNAL_NEWLINE;
 	for (table_asset_t::iterator asset = table.begin(); asset != table.end(); asset++) {
 		for (table_user_t::iterator user = asset->second.begin(); user != asset->second.end(); user++) {
@@ -262,29 +265,35 @@ void journal::save(string path) {
 			file << "attr" << JOURNAL_DELIM << attr->first << JOURNAL_DELIM << attr->second << JOURNAL_NEWLINE;
 	}
 	file.close();
+	JOURNAL_MUST(file);
+	return true;
 }
 
 bool journal::load(string path) {
-	char		str[500];
 	FILE		*file;
 	time_t		tsaved		= -1;
 	int			tslice		= 0;
+	int			pslice		= 0;
 	time_t		tindex		= -1;
 	table_t		t;
 	page_t		p;
 
 	file = fopen(path.c_str(), "r");
+	JOURNAL_MUST(ferror(file) == 0);
 	JOURNAL_MUST_SCAN(file, "journal state table" JOURNAL_NEWLINE);
 	JOURNAL_MUST(fscanf(file, "time saved" JOURNAL_DELIM JOURNAL_TIME_FORMAT JOURNAL_NEWLINE, &tsaved) == 1);
 	JOURNAL_MUST(fscanf(file, "time slice" JOURNAL_DELIM JOURNAL_INT_FORMAT JOURNAL_NEWLINE, &tslice) == 1);
+	JOURNAL_MUST(fscanf(file, "page slice" JOURNAL_DELIM JOURNAL_INT_FORMAT JOURNAL_NEWLINE, &pslice) == 1);
 	JOURNAL_MUST(fscanf(file, "time index" JOURNAL_DELIM JOURNAL_TIME_FORMAT JOURNAL_NEWLINE, &tindex) == 1);
 	JOURNAL_MUST(readtables(file, t));
 	JOURNAL_MUST(readpages(file, p));
 	time_slice = tslice;
+	page_slice = pslice;
 	time_index = tindex;
 	table = t;
 	page = p;
 	fclose(file);
+	JOURNAL_MUST(ferror(file) == 0);
 	return true;
 }
 
