@@ -84,6 +84,30 @@ namespace journalhelpers {
 		return readpages(file, page);
 	}
 
+	void writeattr(ofstream &file, journal::attr_t &attr) {
+		for (journal::attr_t::iterator it = attr.begin(); it != attr.end(); it++)
+			file << "attr" << JOURNAL_DELIM << it->first << JOURNAL_DELIM << it->second << JOURNAL_NEWLINE;
+	}
+
+	void writepage(ofstream &file, journal::page_t &page) {
+		for (journal::page_t::iterator p = page.begin(); p != page.end(); p++) {
+			file << "page" << JOURNAL_DELIM << p->start << JOURNAL_DELIM << p->len << JOURNAL_DELIM 
+				<< p->asset << JOURNAL_DELIM << p->user << JOURNAL_DELIM << p->value << JOURNAL_NEWLINE;
+			writeattr(file, p->attr);
+		}
+	}
+
+	void writetable(ofstream &file, journal::table_t &table) {
+		for (journal::table_asset_t::iterator asset = table.begin(); asset != table.end(); asset++) {
+			for (journal::table_user_t::iterator user = asset->second.begin(); user != asset->second.end(); user++) {
+				journal::table_entry_t entry = user->second;
+				file << "table" << JOURNAL_DELIM << asset->first << JOURNAL_DELIM << user->first << JOURNAL_DELIM 
+					<< entry.time << JOURNAL_DELIM << entry.value << JOURNAL_NEWLINE;
+				writeattr(file, user->second.attr);
+			}
+		}
+	}
+
 };
 
 using namespace journalhelpers;
@@ -92,6 +116,7 @@ journal::journal() {
 	time_slice = 1800;
 	page_slice = 86400;
 	time_index = -1;
+	t		   = -1;
 	onprint	   = NULL;
 	onpage	   = NULL;
 }
@@ -109,6 +134,14 @@ void journal::credit(time_t time, string asset, string user, int value, attr_t a
 	table[asset][user].attr.insert(attr.begin(), attr.end());
 }
 
+void journal::credit(string asset, string user, int value) {
+	credit(t, asset, user, value);
+}
+
+void journal::credit(string asset, string user, int value, attr_t attr) {
+	credit(t, asset, user, value, attr);
+}
+
 void journal::debit(time_t time, string asset, string user, int value) {
 	updatetime(time);
 	if (!exists(asset, user))
@@ -122,6 +155,10 @@ void journal::debit(time_t time, string asset, string user, int value) {
 		else
 			debit(time, asset, JOURNAL_LOST, table[asset][JOURNAL_LOST].value);
 	}
+}
+
+void journal::debit(string asset, string user, int value) {
+	debit(t, asset, user, value);
 }
 
 void journal::balance(time_t time, string asset, int expected) {
@@ -140,6 +177,10 @@ void journal::balance(time_t time, string asset, int expected) {
 		table[asset][JOURNAL_LOST].value = expected;
 	}
 	table[asset][JOURNAL_LOST].time = time;
+}
+
+void journal::balance(string asset, int expected) {
+	balance(t, asset, expected);
 }
 
 bool journal::sufficient(string asset, string user, int value) {
@@ -202,9 +243,9 @@ void journal::flushall(time_t time) {
 void journal::updatetime(time_t time) {
 	time_t new_time_index;
 
+	t = time;
 	if (time_index == -1)
 		time_index = timeindex(time);
-
 	new_time_index = timeindex(time);
 	if (new_time_index != time_index)
 		flushall(time);
@@ -249,21 +290,10 @@ bool journal::save(string path) {
 	file << "time slice" << JOURNAL_DELIM << time_slice << JOURNAL_NEWLINE;
 	file << "page slice" << JOURNAL_DELIM << page_slice << JOURNAL_NEWLINE;
 	file << "time index" << JOURNAL_DELIM << time_index << JOURNAL_NEWLINE;
-	for (table_asset_t::iterator asset = table.begin(); asset != table.end(); asset++) {
-		for (table_user_t::iterator user = asset->second.begin(); user != asset->second.end(); user++) {
-			table_entry_t entry = user->second;
-			file << "table" << JOURNAL_DELIM << asset->first << JOURNAL_DELIM << user->first << JOURNAL_DELIM 
-				<< entry.time << JOURNAL_DELIM << entry.value << JOURNAL_NEWLINE;
-			for (attr_t::iterator attr = user->second.attr.begin(); attr != user->second.attr.end(); attr++)
-				file << "attr" << JOURNAL_DELIM << attr->first << JOURNAL_DELIM << attr->second << JOURNAL_NEWLINE;
-		}
-	}
-	for (page_t::iterator p = page.begin(); p != page.end(); p++) {
-		file << "page" << JOURNAL_DELIM << p->start << JOURNAL_DELIM << p->len << JOURNAL_DELIM 
-			<< p->asset << JOURNAL_DELIM << p->user << JOURNAL_DELIM << p->value << JOURNAL_NEWLINE;
-		for (attr_t::iterator attr = p->attr.begin(); attr != p->attr.end(); attr++)
-			file << "attr" << JOURNAL_DELIM << attr->first << JOURNAL_DELIM << attr->second << JOURNAL_NEWLINE;
-	}
+	file << "time" << JOURNAL_DELIM << t << JOURNAL_NEWLINE;
+	writeattr(file, attr);
+	writetable(file, table);
+	writepage(file, page);
 	file.close();
 	JOURNAL_MUST(file);
 	return true;
@@ -275,8 +305,10 @@ bool journal::load(string path) {
 	int			tslice		= 0;
 	int			pslice		= 0;
 	time_t		tindex		= -1;
-	table_t		t;
+	time_t		tt			= -1;
+	table_t		tb;
 	page_t		p;
+	attr_t		at;
 
 	file = fopen(path.c_str(), "r");
 	JOURNAL_MUST(ferror(file) == 0);
@@ -285,13 +317,17 @@ bool journal::load(string path) {
 	JOURNAL_MUST(fscanf(file, "time slice" JOURNAL_DELIM JOURNAL_INT_FORMAT JOURNAL_NEWLINE, &tslice) == 1);
 	JOURNAL_MUST(fscanf(file, "page slice" JOURNAL_DELIM JOURNAL_INT_FORMAT JOURNAL_NEWLINE, &pslice) == 1);
 	JOURNAL_MUST(fscanf(file, "time index" JOURNAL_DELIM JOURNAL_TIME_FORMAT JOURNAL_NEWLINE, &tindex) == 1);
-	JOURNAL_MUST(readtables(file, t));
+	JOURNAL_MUST(fscanf(file, "time" JOURNAL_DELIM JOURNAL_TIME_FORMAT JOURNAL_NEWLINE, &tt) == 1);
+	JOURNAL_MUST(readattrs(file, at));
+	JOURNAL_MUST(readtables(file, tb));
 	JOURNAL_MUST(readpages(file, p));
 	time_slice = tslice;
 	page_slice = pslice;
 	time_index = tindex;
-	table = t;
-	page = p;
+	t		   = tt;
+	table	   = tb;
+	page	   = p;
+	attr	   = at;
 	fclose(file);
 	JOURNAL_MUST(ferror(file) == 0);
 	return true;

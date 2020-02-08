@@ -50,9 +50,11 @@ public:
 	page_t page;
 	void (*onprint)(output_t);
 	void (*onpage)(page_t);
+	attr_t attr;
 
 private:
 	time_t time_index;
+	time_t t;
 
 	void flushentry(time_t time, string asset, string user);
 	void print(struct output);
@@ -60,16 +62,20 @@ private:
 	time_t timeindex(time_t time);
 	time_t pageindex(time_t time);
 	void flushall(time_t time);
-	void updatetime(time_t time);
 	int count(string asset);
 	bool sufficient(string asset, string user, int value);
 	
 
 public:
 	journal();
+	void updatetime(time_t time);
+	void credit(string asset, string user, int value);
+	void credit(string asset, string user, int value, attr_t attr);
 	void credit(time_t time, string asset, string user, int value);
 	void credit(time_t time, string asset, string user, int value, attr_t attr);
+	void debit(string asset, string user, int value);
 	void debit(time_t time, string asset, string user, int value);
+	void balance(string asset, int expected_value);
 	void balance(time_t time, string asset, int expected_value);
 	bool save(string path);
 	bool load(string path);

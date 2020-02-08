@@ -86,6 +86,7 @@ void test6() {
 
 void test7() {
 	journal j, j2;
+	j.attr["sample attr key"] = "sample attr value";
 	journal::attr_t attr;
 	attr["hostname"] = "mnl079win";
 	j.credit(12, "apple", "ivan", 5, attr);
