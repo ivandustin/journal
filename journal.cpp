@@ -252,6 +252,10 @@ void journal::updatetime(time_t time) {
 	time_index = new_time_index;
 }
 
+time_t journal::gettime() {
+	return t;
+}
+
 void journal::print(output_t output) {
 	struct output last;
 	

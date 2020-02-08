@@ -69,6 +69,7 @@ private:
 public:
 	journal();
 	void updatetime(time_t time);
+	time_t gettime();
 	void credit(string asset, string user, int value);
 	void credit(string asset, string user, int value, attr_t attr);
 	void credit(time_t time, string asset, string user, int value);
