@@ -143,17 +143,23 @@ void journal::credit(string asset, string user, int value, attr_t attr) {
 }
 
 void journal::debit(time_t time, string asset, string user, int value) {
+	int diff;
+
 	updatetime(time);
-	if (!exists(asset, user))
-		return;
-	if (sufficient(asset, user, value)) {
-		flushentry(time, asset, user);
-		table[asset][user].value -= value;
+	if (exists(asset, user)) {
+		if (sufficient(asset, user, value)) {
+			flushentry(time, asset, user);
+			table[asset][user].value -= value;
+		} else {
+			debit(time, asset, user, table[asset][user].value);
+			if (user != JOURNAL_LOST) {
+				diff = value - table[asset][user].value;
+				debit(time, asset, JOURNAL_LOST, diff);
+			}
+		}
 	} else {
-		if (sufficient(asset, JOURNAL_LOST, value))
+		if (user != JOURNAL_LOST)
 			debit(time, asset, JOURNAL_LOST, value);
-		else
-			debit(time, asset, JOURNAL_LOST, table[asset][JOURNAL_LOST].value);
 	}
 }
 
@@ -170,13 +176,12 @@ void journal::balance(time_t time, string asset, int expected) {
 		return;
 	if (expected > actual) {
 		diff = expected - actual;
-		table[asset][JOURNAL_LOST].value = diff;
+		credit(time, asset, JOURNAL_LOST, diff);
 	} else if (actual > expected) {
 		for (table_user_t::iterator it = table[asset].begin(); it != table[asset].end(); it++)
 			debit(time, asset, it->first, it->second.value);
-		table[asset][JOURNAL_LOST].value = expected;
+		credit(time, asset, JOURNAL_LOST, expected);
 	}
-	table[asset][JOURNAL_LOST].time = time;
 }
 
 void journal::balance(string asset, int expected) {
